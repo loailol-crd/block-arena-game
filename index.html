@@ -1,0 +1,315 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Block Arena</title>
+  <style>
+    body {
+      margin: 0;
+      display: grid;
+      place-items: center;
+      background: #111827;
+      color: white;
+      overflow: hidden;
+      font-family: Arial, sans-serif;
+    }
+
+    canvas {
+      border: 3px solid #22c55e;
+      background: #0f172a;
+      box-shadow: 0 0 20px rgba(0,0,0,0.5);
+    }
+
+    .hud {
+      position: absolute;
+      top: 10px;
+      left: 10px;
+      font-weight: bold;
+      font-size: 18px;
+      z-index: 5;
+    }
+  </style>
+</head>
+<body>
+  <div class="hud" id="hud">Health: 100 | Score: 0</div>
+  <canvas id="game" width="960" height="540"></canvas>
+
+  <script>
+    const canvas = document.getElementById("game");
+    const ctx = canvas.getContext("2d");
+    const hud = document.getElementById("hud");
+
+    let keys = {};
+    let mouse = { x: canvas.width / 2, y: canvas.height / 2, down: false };
+
+    const player = {
+      x: canvas.width / 2,
+      y: canvas.height / 2,
+      size: 18,
+      speed: 4.3,
+      health: 100,
+      fireCooldown: 0
+    };
+
+    let bullets = [];
+    let enemies = [];
+    let particles = [];
+    let score = 0;
+    let gameOver = false;
+
+    function clamp(value, min, max) {
+      return Math.min(Math.max(value, min), max);
+    }
+
+    function dist(a, b) {
+      return Math.hypot(a.x - b.x, a.y - b.y);
+    }
+
+    function shoot() {
+      if (gameOver || player.fireCooldown > 0) return;
+
+      const angle = Math.atan2(mouse.y - player.y, mouse.x - player.x);
+
+      bullets.push({
+        x: player.x + Math.cos(angle) * 22,
+        y: player.y + Math.sin(angle) * 22,
+        vx: Math.cos(angle) * 9,
+        vy: Math.sin(angle) * 9,
+        size: 5
+      });
+
+      player.fireCooldown = 0.14;
+    }
+
+    function spawnEnemy() {
+      const side = Math.floor(Math.random() * 4);
+      let x = 0, y = 0;
+
+      if (side === 0) {
+        x = Math.random() * canvas.width;
+        y = -30;
+      } else if (side === 1) {
+        x = canvas.width + 30;
+        y = Math.random() * canvas.height;
+      } else if (side === 2) {
+        x = Math.random() * canvas.width;
+        y = canvas.height + 30;
+      } else {
+        x = -30;
+        y = Math.random() * canvas.height;
+      }
+
+      enemies.push({
+        x,
+        y,
+        size: 16 + Math.random() * 12,
+        speed: 1 + Math.random() * 1.4,
+        health: 1
+      });
+    }
+
+    function createParticles(x, y, color, count) {
+      for (let i = 0; i < count; i++) {
+        particles.push({
+          x,
+          y,
+          vx: (Math.random() - 0.5) * 4,
+          vy: (Math.random() - 0.5) * 4,
+          life: 18 + Math.random() * 26,
+          color
+        });
+      }
+    }
+
+    function update(dt) {
+      if (gameOver) return;
+
+      let moveX = 0;
+      let moveY = 0;
+
+      if (keys["w"] || keys["arrowup"]) moveY -= 1;
+      if (keys["s"] || keys["arrowdown"]) moveY += 1;
+      if (keys["a"] || keys["arrowleft"]) moveX -= 1;
+      if (keys["d"] || keys["arrowright"]) moveX += 1;
+
+      if (moveX !== 0 || moveY !== 0) {
+        const length = Math.hypot(moveX, moveY) || 1;
+        player.x += (moveX / length) * player.speed * dt * 60;
+        player.y += (moveY / length) * player.speed * dt * 60;
+      }
+
+      player.x = clamp(player.x, 18, canvas.width - 18);
+      player.y = clamp(player.y, 18, canvas.height - 18);
+
+      if (mouse.down || keys[" "]) shoot();
+      player.fireCooldown = Math.max(0, player.fireCooldown - dt);
+
+      // bullets
+      for (let i = bullets.length - 1; i >= 0; i--) {
+        bullets[i].x += bullets[i].vx * dt * 60;
+        bullets[i].y += bullets[i].vy * dt * 60;
+
+        if (bullets[i].x < -20 || bullets[i].x > canvas.width + 20 ||
+            bullets[i].y < -20 || bullets[i].y > canvas.height + 20) {
+          bullets.splice(i, 1);
+          continue;
+        }
+
+        for (let j = enemies.length - 1; j >= 0; j--) {
+          if (dist(bullets[i], enemies[j]) < bullets[i].size + enemies[j].size) {
+            enemies[j].health -= 1;
+            bullets.splice(i, 1);
+
+            if (enemies[j].health <= 0) {
+              enemies.splice(j, 1);
+              score += 10;
+              createParticles(enemies[j].x, enemies[j].y, "#34d399", 20);
+            } else {
+              createParticles(bullets[i] ? bullets[i].x : enemies[j].x, bullets[i] ? bullets[i].y : enemies[j].y, "#fbbf24", 8);
+            }
+            break;
+          }
+        }
+      }
+
+      // enemies move toward player
+      for (let i = enemies.length - 1; i >= 0; i--) {
+        const enemy = enemies[i];
+        const angle = Math.atan2(player.y - enemy.y, player.x - enemy.x);
+        enemy.x += Math.cos(angle) * enemy.speed * dt * 60;
+        enemy.y += Math.sin(angle) * enemy.speed * dt * 60;
+
+        if (dist(player, enemy) < player.size + enemy.size) {
+          player.health -= 15;
+          createParticles(enemy.x, enemy.y, "#ef4444", 18);
+          enemies.splice(i, 1);
+
+          if (player.health <= 0) {
+            gameOver = true;
+          }
+        }
+      }
+
+      // particles
+      for (let i = particles.length - 1; i >= 0; i--) {
+        particles[i].x += particles[i].vx * dt * 60;
+        particles[i].y += particles[i].vy * dt * 60;
+        particles[i].life -= dt * 60;
+        if (particles[i].life <= 0) particles.splice(i, 1);
+      }
+
+      if (Math.random() < 0.02) spawnEnemy();
+
+      hud.textContent = `Health: ${Math.max(0, Math.ceil(player.health))} | Score: ${score}`;
+    }
+
+    function draw() {
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+      // blocky map
+      ctx.fillStyle = "#0f172a";
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+      for (let x = 0; x < canvas.width; x += 40) {
+        for (let y = 0; y < canvas.height; y += 40) {
+          ctx.fillStyle = (x + y) % 80 === 0 ? "#1f2937" : "#111827";
+          ctx.fillRect(x, y, 40, 40);
+        }
+      }
+
+      // bullets
+      for (const b of bullets) {
+        ctx.fillStyle = "#facc15";
+        ctx.fillRect(b.x - b.size / 2, b.y - b.size / 2, b.size, b.size);
+      }
+
+      // enemies
+      for (const e of enemies) {
+        ctx.fillStyle = "#ef4444";
+        ctx.fillRect(e.x - e.size / 2, e.y - e.size / 2, e.size, e.size);
+      }
+
+      // particles
+      for (const p of particles) {
+        ctx.fillStyle = p.color;
+        ctx.globalAlpha = Math.max(0, p.life / 30);
+        ctx.fillRect(p.x - 3, p.y - 3, 6, 6);
+      }
+      ctx.globalAlpha = 1;
+
+      // player
+      ctx.fillStyle = "#22c55e";
+      ctx.fillRect(player.x - player.size / 2, player.y - player.size / 2, player.size, player.size);
+
+      // aim line
+      const angle = Math.atan2(mouse.y - player.y, mouse.x - player.x);
+      ctx.strokeStyle = "#a7f3d0";
+      ctx.lineWidth = 3;
+      ctx.beginPath();
+      ctx.moveTo(player.x, player.y);
+      ctx.lineTo(player.x + Math.cos(angle) * 26, player.y + Math.sin(angle) * 26);
+      ctx.stroke();
+
+      if (gameOver) {
+        ctx.fillStyle = "rgba(0,0,0,0.7)";
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+        ctx.fillStyle = "white";
+        ctx.textAlign = "center";
+        ctx.font = "bold 46px Arial";
+        ctx.fillText("YOU DIED", canvas.width / 2, canvas.height / 2 - 10);
+        ctx.font = "24px Arial";
+        ctx.fillText("Press R to restart", canvas.width / 2, canvas.height / 2 + 40);
+      }
+    }
+
+    let lastTime = 0;
+    function gameLoop(timestamp) {
+      const dt = Math.min((timestamp - lastTime) / 1000 || 0.016, 0.033);
+      lastTime = timestamp;
+
+      update(dt);
+      draw();
+      requestAnimationFrame(gameLoop);
+    }
+
+    document.addEventListener("keydown", (e) => {
+      keys[e.key.toLowerCase()] = true;
+
+      if (e.key.toLowerCase() === "r" && gameOver) {
+        player.x = canvas.width / 2;
+        player.y = canvas.height / 2;
+        player.health = 100;
+        score = 0;
+        bullets = [];
+        enemies = [];
+        particles = [];
+        gameOver = false;
+      }
+    });
+
+    document.addEventListener("keyup", (e) => {
+      keys[e.key.toLowerCase()] = false;
+    });
+
+    canvas.addEventListener("mousemove", (e) => {
+      const rect = canvas.getBoundingClientRect();
+      mouse.x = ((e.clientX - rect.left) / rect.width) * canvas.width;
+      mouse.y = ((e.clientY - rect.top) / rect.height) * canvas.height;
+    });
+
+    canvas.addEventListener("mousedown", () => {
+      mouse.down = true;
+    });
+
+    window.addEventListener("mouseup", () => {
+      mouse.down = false;
+    });
+
+    spawnEnemy();
+    spawnEnemy();
+    requestAnimationFrame(gameLoop);
+  </script>
+</body>
+</html>
